@@ -4,16 +4,16 @@ services:
     container_name: master
     hostname: hadoop-master
     ports:
-    - "9870:9870"
-    - "8080:8080"
-    - "9000:9000"
-    - "8088:8088"
-    - "7070:7070"
-    - "19888:19888"
+      - "9870:9870"
+      - "8080:8080"
+      - "9000:9000"
+      - "8088:8088"
+      - "7070:7070"
+      - "19888:19888"
     volumes:
-    - ./data:/SharedVolume
+      - ./data:/SharedVolume
     networks:
-    - hadoop
+      - hadoop
     tty: true
     stdin_open: true
 
@@ -22,11 +22,11 @@ services:
     container_name: slave1
     hostname: hadoop-slave1
     ports:
-    - "8040:8042"
+      - "8040:8042"
     volumes:
-    - ./data:/SharedVolume
+      - ./data:/SharedVolume
     networks:
-    - hadoop
+      - hadoop
     tty: true
     stdin_open: true
 
@@ -35,11 +35,34 @@ services:
     container_name: slave2
     hostname: hadoop-slave2
     ports:
-    - "8041:8042"
+      - "8041:8042"
     volumes:
-    - ./data:/SharedVolume
+      - ./data:/SharedVolume
     networks:
-    - hadoop
+      - hadoop
+    tty: true
+    stdin_open: true
+
+  hive-server:
+    image: apache/hive:4.0.0-alpha-2
+    container_name: hiveserver2
+    hostname: hiveserver2
+    environment:
+      SERVICE_NAME: hiveserver2
+      # optional if you want Hive to talk to Hadoop master
+      HIVE_SITE_CONF_hive_metastore_uris: thrift://hiveserver2:9083
+      HIVE_SITE_CONF_fs_defaultFS: hdfs://hadoop-master:9000
+      HIVE_SITE_CONF_hadoop_hostname: hadoop-master
+    ports:
+      - "10000:10000"  # HiveServer2
+      - "10002:10002"  # Web UI
+      - "9083:9083"    # Metastore
+    volumes:
+      - ./data:/shared_volume
+    depends_on:
+      - hadoop-master
+    networks:
+      - hadoop
     tty: true
     stdin_open: true
 
