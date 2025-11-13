@@ -1,0 +1,82 @@
+--1 Charger les Donnees
+airports = LOAD '/SharedVolume/airports.csv' USING PigStorage(',') 
+    AS (iata:chararray, airport:chararray, city:chararray, state:chararray, country:chararray, lat:double, long:double);
+
+carriers = LOAD '/SharedVolume/carriers.csv' USING PigStorage(',') 
+    AS (Code:chararray, Description:chararray);
+
+flights = LOAD '/SharedVolume/test.csv' USING PigStorage(',') 
+    AS (Year:int, Month:int, DayofMonth:int, DayOfWeek:int, DepTime:int, CRSDepTime:int, 
+        ArrTime:int, CRSArrTime:int, UniqueCarrier:chararray, FlightNum:int, TailNum:chararray, 
+        ActualElapsedTime:int, CRSElapsedTime:int, AirTime:int, ArrDelay:int, DepDelay:int, 
+        Origin:chararray, Dest:chararray, Distance:int, TaxiIn:int, TaxiOut:int, Cancelled:int, 
+        CancellationCode:chararray, Diverted:int, CarrierDelay:int, WeatherDelay:int, NASDelay:int, 
+        SecurityDelay:int, LateAircraftDelay:int);
+
+-- 2. Top 20 des aéroports par volume total de vols
+
+
+outgoing = GROUP flights BY Origin;
+outgoing_count = FOREACH outgoing GENERATE group AS airport_code, COUNT(flights) AS outgoing_flights;
+
+
+incoming = GROUP flights BY Dest;
+incoming_count = FOREACH incoming GENERATE group AS airport_code, COUNT(flights) AS incoming_flights;
+
+
+airport_traffic = JOIN outgoing_count BY airport_code FULL OUTER, incoming_count BY airport_code;
+airport_traffic = FOREACH airport_traffic GENERATE 
+                    (outgoing_count::airport_code is not null ? outgoing_count::airport_code : incoming_count::airport_code) AS airport_code,
+                    (outgoing_count::outgoing_flights is not null ? outgoing_count::outgoing_flights : 0) AS outgoing_flights,
+                    (incoming_count::incoming_flights is not null ? incoming_count::incoming_flights : 0) AS incoming_flights,
+                    ((outgoing_count::outgoing_flights is not null ? outgoing_count::outgoing_flights : 0) 
+                     + (incoming_count::incoming_flights is not null ? incoming_count::incoming_flights : 0)) AS total_flights;
+
+-- Top 20 aéroports
+top20_airports = ORDER airport_traffic BY total_flights DESC;
+top20_airports = LIMIT top20_airports 20;
+
+-- 3. Popularité des transporteurs
+
+flights_by_carrier = GROUP flights BY (Year, UniqueCarrier);
+carrier_counts = FOREACH flights_by_carrier GENERATE 
+                    group.Year AS Year, 
+                    group.UniqueCarrier AS carrier, 
+                    COUNT(flights) AS total_flights;
+
+carrier_counts_log = FOREACH carrier_counts GENERATE Year, carrier, total_flights, 
+                     (total_flights>0 ? (double)LOG10((double)total_flights) : 0) AS log_total_flights;
+
+-- 4. Proportion de vols retardés
+
+flights_with_delay = FOREACH flights GENERATE Year, Month, DayofMonth, DayOfWeek, UniqueCarrier, 
+                                (ArrDelay > 15 ? 1 : 0) AS delayed;
+
+-- Par année
+flights_by_year = GROUP flights_with_delay BY Year;
+delay_ratio_year = FOREACH flights_by_year GENERATE group AS Year, 
+                    SUM(flights_with_delay.delayed)/COUNT(flights_with_delay) AS proportion_delayed;
+
+-- Par mois
+flights_by_month = GROUP flights_with_delay BY (Year, Month);
+delay_ratio_month = FOREACH flights_by_month GENERATE group.Year AS Year, group.Month AS Month, 
+                     SUM(flights_with_delay.delayed)/COUNT(flights_with_delay) AS proportion_delayed;
+
+-- 5. Retards des transporteurs
+
+flights_by_carrier_time = GROUP flights_with_delay BY (UniqueCarrier, Year);
+delay_ratio_carrier = FOREACH flights_by_carrier_time GENERATE 
+                        group.UniqueCarrier AS carrier, group.Year AS Year, 
+                        SUM(flights_with_delay.delayed)/COUNT(flights_with_delay) AS proportion_delayed;
+
+-- 6. Itinéraires les plus fréquentés
+
+routes = FOREACH flights GENERATE 
+            (Origin < Dest ? Origin : Dest) AS airport1, 
+            (Origin < Dest ? Dest : Origin) AS airport2;
+
+routes_grouped = GROUP routes BY (airport1, airport2);
+routes_count = FOREACH routes_grouped GENERATE group.airport1 AS airport1, group.airport2 AS airport2, COUNT(routes) AS total_flights;
+top_routes = ORDER routes_count BY total_flights DESC;
+top_routes = LIMIT top_routes 20;
+
